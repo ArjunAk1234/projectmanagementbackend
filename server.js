@@ -1,4 +1,4 @@
-
+require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const jwt = require('jsonwebtoken');
@@ -13,7 +13,7 @@ app.use(cors());
 app.use(helmet());
 
 const PORT = 5000;
-const MONGO_URI = 'mongodb://localhost:27017/bugtracker';
+const MONGO_URI = process.env.URI;
 const JWT_SECRET = 'ultra_secure_secret';
 
 mongoose.connect(MONGO_URI).then(async () => {
@@ -97,24 +97,36 @@ app.post('/api/projects', auth, async (req, res) => {
 });
 
 
-app.get('/api/projects', auth, async (req, res) => {
-    let query = {};
-    if (req.user.role === 'manager') query = { manager: req.user.id };
-    if (req.user.role === 'developer') query = { teamMembers: req.user.id };
-    res.json(await Project.find(query).populate('manager teamMembers', 'name'));
-});
+// app.get('/api/projects', auth, async (req, res) => {
+//     let query = {};
+//     if (req.user.role === 'manager') query = { manager: req.user.id };
+//     if (req.user.role === 'developer') query = { teamMembers: req.user.id };
+//     res.json(await Project.find(query).populate('manager teamMembers', 'name'));
+// });
+
+
+// app.put('/api/projects/:id', auth, async (req, res) => {
+//     const project = await Project.findById(req.params.id);
+//     if (!project) return res.status(404).send('Not found');
+//     if (req.user.role !== 'admin' && project.manager.toString() !== req.user.id) {
+//         return res.status(403).json({ msg: 'Unauthorized' });
+//     }
+//     const updated = await Project.findByIdAndUpdate(req.params.id, req.body, { new: true });
+//     res.json(updated);
+// });
+
+// 1. Projects API
 
 
 app.put('/api/projects/:id', auth, async (req, res) => {
-    const project = await Project.findById(req.params.id);
-    if (!project) return res.status(404).send('Not found');
-    if (req.user.role !== 'admin' && project.manager.toString() !== req.user.id) {
-        return res.status(403).json({ msg: 'Unauthorized' });
-    }
-    const updated = await Project.findByIdAndUpdate(req.params.id, req.body, { new: true });
-    res.json(updated);
+  const project = await Project.findById(req.params.id);
+  // RESTRICTION: Only Admin or the specific Project Manager can edit
+  if (req.user.role !== 'admin' && project.manager.toString() !== req.user.id) {
+      return res.status(403).json({ msg: 'You do not own this project' });
+  }
+  const updated = await Project.findByIdAndUpdate(req.params.id, req.body, { new: true });
+  res.json(updated);
 });
-
 
 app.delete('/api/projects/:id', auth, async (req, res) => {
     if (req.user.role !== 'admin') return res.status(403).send('Only admin can delete projects');
@@ -131,12 +143,12 @@ app.post('/api/tickets', auth, async (req, res) => {
 });
 
 
-app.get('/api/tickets', auth, async (req, res) => {
-    const { projectId } = req.query;
-    let query = { projectId };
-    if (req.user.role === 'developer') query.assignee = req.user.id;
-    res.json(await Ticket.find(query).populate('assignee', 'name'));
-});
+// app.get('/api/tickets', auth, async (req, res) => {
+//     const { projectId } = req.query;
+//     let query = { projectId };
+//     if (req.user.role === 'developer') query.assignee = req.user.id;
+//     res.json(await Ticket.find(query).populate('assignee', 'name'));
+// });
 
 
 app.put('/api/tickets/:id', auth, async (req, res) => {
@@ -194,13 +206,65 @@ app.put('/api/comments/:id', auth, async (req, res) => {
 });
 
 
-app.delete('/api/comments/:id', auth, async (req, res) => {
-    const comment = await Comment.findById(req.params.id);
-    if (comment.userId.toString() === req.user.id || req.user.role === 'admin') {
-        await comment.deleteOne();
-        return res.json({ msg: 'Comment deleted' });
-    }
-    res.status(403).send('Forbidden');
+// app.delete('/api/comments/:id', auth, async (req, res) => {
+//     const comment = await Comment.findById(req.params.id);
+//     if (comment.userId.toString() === req.user.id || req.user.role === 'admin') {
+//         await comment.deleteOne();
+//         return res.json({ msg: 'Comment deleted' });
+//     }
+//     res.status(403).send('Forbidden');
+// });
+
+
+// app.get('/api/projects', auth, async (req, res) => {
+//   let query = {};
+//   if (req.user.role === 'manager') query = { manager: req.user.id };
+//   // FIX: Developers see projects where they are in the teamMembers array
+//   if (req.user.role === 'developer') query = { teamMembers: req.user.id };
+//   res.json(await Project.find(query).populate('manager teamMembers', 'name email role'));
+// });
+app.get('/api/projects', auth, async (req, res) => {
+  // Logic: Managers and Admins see all projects for collaboration, 
+  // but the UI will restrict editing based on the 'manager' field.
+  res.json(await Project.find().populate('manager teamMembers', 'name role email'));
 });
 
+// app.get('/api/tickets', auth, async (req, res) => {
+//   const { projectId } = req.query;
+//   if (!projectId) return res.status(400).send('Project ID required');
+
+//   let query = { projectId };
+  
+//   // FIX: To ensure developers see tickets, we verify they are part of the project
+//   // Removing the strict query.assignee filter so they can see all project tasks
+//   // If you want them ONLY to see assigned ones, uncomment the line below:
+//   // if (req.user.role === 'developer') query.assignee = req.user.id;
+
+//   const tickets = await Ticket.find(query).populate('assignee', 'name');
+//   res.json(tickets);
+// })
+
+app.get('/api/tickets', auth, async (req, res) => {
+  const { projectId } = req.query;
+  // Everyone in the system can see all tickets for transparency
+  res.json(await Ticket.find({ projectId }).populate('assignee', 'name'));
+});
+
+// 3. Comments API
+app.delete('/api/comments/:id', auth, async (req, res) => {
+  const comment = await Comment.findById(req.params.id);
+  const ticket = await Ticket.findById(comment.ticketId);
+  const project = await Project.findById(ticket.projectId);
+
+  // RESTRICTION: Comment can be deleted by the author, the Admin, or the Project Manager
+  const isAuthor = comment.userId.toString() === req.user.id;
+  const isProjectManager = project.manager.toString() === req.user.id;
+  const isAdmin = req.user.role === 'admin';
+
+  if (isAuthor || isProjectManager || isAdmin) {
+      await comment.deleteOne();
+      return res.json({ msg: 'Deleted' });
+  }
+  res.status(403).json({ msg: 'Unauthorized' });
+});
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
