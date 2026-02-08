@@ -1,4 +1,4 @@
-require('dotenv').config();
+
 const express = require('express');
 const mongoose = require('mongoose');
 const jwt = require('jsonwebtoken');
@@ -12,8 +12,8 @@ app.use(express.json());
 app.use(cors());
 app.use(helmet());
 
-const PORT = 5000;
-const MONGO_URI = process.env.URI;
+const PORT = 5003;
+const MONGO_URI = 'mongodb://localhost:27017/bugtracker';
 const JWT_SECRET = 'ultra_secure_secret';
 
 mongoose.connect(MONGO_URI).then(async () => {
@@ -128,14 +128,47 @@ app.put('/api/projects/:id', auth, async (req, res) => {
   res.json(updated);
 });
 
+// app.delete('/api/projects/:id', auth, async (req, res) => {
+//     if (req.user.role !== 'admin') return res.status(403).send('Only admin can delete projects');
+//     await Project.findByIdAndDelete(req.params.id);
+//     await Ticket.deleteMany({ projectId: req.params.id });
+//     res.json({ msg: 'Project deleted' });
+// });
+
+// Add/Update the Project Delete Route in server.js
+
 app.delete('/api/projects/:id', auth, async (req, res) => {
-    if (req.user.role !== 'admin') return res.status(403).send('Only admin can delete projects');
-    await Project.findByIdAndDelete(req.params.id);
-    await Ticket.deleteMany({ projectId: req.params.id });
-    res.json({ msg: 'Project deleted' });
+  try {
+      const project = await Project.findById(req.params.id);
+      if (!project) return res.status(404).json({ msg: 'Project not found' });
+
+      // PERMISSION CHECK: 
+      // Only Admin OR the specific Manager who owns the project can delete it
+      const isAdmin = req.user.role === 'admin';
+      const isOwner = project.manager.toString() === req.user.id;
+
+      if (!isAdmin && !isOwner) {
+          return res.status(403).json({ msg: 'Unauthorized: Only the project manager or admin can delete this project' });
+      }
+
+      // 1. Find all tickets belonging to this project
+      const tickets = await Ticket.find({ projectId: req.params.id });
+      const ticketIds = tickets.map(t => t._id);
+
+      // 2. Cascade Delete: Remove all comments linked to these tickets
+      await Comment.deleteMany({ ticketId: { $in: ticketIds } });
+
+      // 3. Cascade Delete: Remove all tickets
+      await Ticket.deleteMany({ projectId: req.params.id });
+
+      // 4. Finally, delete the project
+      await project.deleteOne();
+
+      res.json({ msg: 'Project and all associated data deleted successfully' });
+  } catch (err) {
+      res.status(500).json({ msg: 'Server Error during deletion' });
+  }
 });
-
-
 app.post('/api/tickets', auth, async (req, res) => {
     if (req.user.role === 'viewer') return res.status(403).send('Forbidden');
     const ticket = await Ticket.create(req.body);
