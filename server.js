@@ -13,7 +13,7 @@ app.use(cors());
 app.use(helmet());
 
 const PORT = 5003;
-const MONGO_URI = 'mongodb://localhost:27017/bugtracker';
+const MONGO_URI = process.env.URL;
 const JWT_SECRET = 'ultra_secure_secret';
 
 mongoose.connect(MONGO_URI).then(async () => {
